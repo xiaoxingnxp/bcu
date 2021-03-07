@@ -124,6 +124,44 @@ static void print_version()
 	printf("version %s\n", GIT_VERSION);
 }
 
+#if defined(linux)
+char* shellcmd(char* cmd, char* buff, int size)
+{
+	char temp[256];
+	FILE* fp = NULL;
+	int offset = 0;
+	int len;
+
+	fp = popen(cmd, "r");
+	if(fp == NULL)
+	{
+		return NULL;
+	}
+
+	while(fgets(temp, sizeof(temp), fp) != NULL)
+	{
+		len = strlen(temp);
+		if(offset + len < size)
+		{
+			strcpy(buff+offset, temp);
+			offset += len;
+		}
+		else
+		{
+			buff[offset] = 0;
+			break;
+		}
+	}
+
+	if(fp != NULL)
+	{
+		pclose(fp);
+	}
+
+	return buff;
+}
+#endif
+
 static void upgrade_bcu(struct options_setting* setting)
 {
 	printf("now version %s\n", GIT_VERSION);
@@ -150,7 +188,15 @@ static void upgrade_bcu(struct options_setting* setting)
 
 	strcpy(bcu_download_info.download_name, "bcu");
 #if defined(linux)
-	strcpy(bcu_download_info.extension_name, "");
+	char sysversion[15], sys_ver = 0;
+
+	memset(sysversion, 0, sizeof(sysversion));
+	shellcmd("lsb_release -r -s", sysversion, sizeof(sysversion));
+	sys_ver = (sysversion[0] - '0') * 10 + (sysversion[1] - '0');
+	if (sys_ver == 20)
+		strcpy(bcu_download_info.extension_name, "_Ubuntu20");
+	else
+		strcpy(bcu_download_info.extension_name, "_Ubuntu1618");
 #elif defined(__APPLE__)
 	strcpy(bcu_download_info.extension_name, "_mac");
 #else
@@ -167,7 +213,7 @@ static void upgrade_bcu(struct options_setting* setting)
 		{
 			char cmd[50] = { 0 }, filename[25] = { 0 };
 			strcat(filename, bcu_download_info.tag_name);
-			strcat(filename, bcu_download_info.extension_name);
+			// strcat(filename, bcu_download_info.extension_name);
 			sprintf(cmd, "chmod a+x %s", filename);
 			system(cmd);
 		}
@@ -185,7 +231,8 @@ static void print_help(char* cmd)
 		printf("%s\n", "Usage:");
 		printf("%s\n\n", "bcu command [-options]");
 		printf("%s\n", "list of available commands:");
-		printf("	%s%-60s%s%s\n", g_vt_default, "reset  [BOOTMODE_NAME] [-hold=] [-board=/-auto] [-id=]", g_vt_green, "reset the board (optional [BOOTMODE_NAME])");
+		printf("	%s%-60s%s%s\n", g_vt_default, "reset  [BOOTMODE_NAME] [-hold=] [-board=/-auto] [-id=]", g_vt_green, "reset the board, and then boot from BOOTMODE_NAME");
+		printf("	%s%-60s%s%s\n", g_vt_default, "       [-boothex=] [-bootbin=]", g_vt_green, "or the boot mode value set by [-boothex=] [-bootbin=]");
 		printf("	%s%-60s%s%s\n", g_vt_default, "onoff  [-hold=] [-board=/-auto] [-id=]", g_vt_green, "press the ON/OFF button once for -hold= time(ms)");
 		printf("	%s%-60s%s%s\n", g_vt_default, "init   [BOOTMODE_NAME] [-board=/-auto] [-id=]", g_vt_green, "enable the remote control with a boot mode");
 		printf("	%s%-60s%s%s\n", g_vt_default, "deinit [BOOTMODE_NAME] [-board=/-auto] [-id=]", g_vt_green, "disable the remote control");
@@ -201,12 +248,13 @@ static void print_help(char* cmd)
 		printf("	%s%-60s%s%s\n", g_vt_default, "get_level [GPIO_NAME] [-board=/-auto] [-id=]", g_vt_green, "get level state of pin GPIO_NAME");
 		printf("	%s%-60s%s%s\n", g_vt_default, "set_gpio [GPIO_NAME] [1/0] [-board=/-auto] [-id=]", g_vt_green, "set pin GPIO_NAME to be high(1) or low(0)");
 		printf("	%s%-60s%s%s\n", g_vt_default, "set_boot_mode [BOOTMODE_NAME] [-board=/-auto] [-id=]", g_vt_green, "set BOOTMODE_NAME as boot mode");
+		printf("	%s%-60s%s%s\n", g_vt_default, "              [-boothex=] [-bootbin=]", g_vt_green, "");
 		printf("	%s%-60s%s%s\n", g_vt_default, "get_boot_mode [-board=/-auto] [-id=]", g_vt_green, "read the boot mode set by BCU before");
 		printf("\n");
 		printf("	%s%-60s%s%s\n", g_vt_default, "lsftdi", g_vt_green, "list all boards connected by ftdi device");
 		printf("	%s%-60s%s%s\n", g_vt_default, "lsboard", g_vt_green, "list all supported board models");
-		printf("	%s%-60s%s%s\n", g_vt_default, "lsbootmode [-board=/-auto]", g_vt_green, "show a list of available boot mode of a board");
-		printf("	%s%-60s%s%s\n", g_vt_default, "lsgpio     [-board=/-auto]", g_vt_green, "show a list of available gpio pin of a board");
+		printf("	%s%-60s%s%s\n", g_vt_default, "lsbootmode [-board=/-auto]", g_vt_green, "show a list of available BOOTMODE_NAME of a board");
+		printf("	%s%-60s%s%s\n", g_vt_default, "lsgpio     [-board=/-auto]", g_vt_green, "show a list of available GPIO_NAME of a board");
 		printf("\n");
 		printf("	%s%-60s%s%s\n", g_vt_default, "upgrade    [-doc] [-f]", g_vt_green, "get the latest BCU release");
 #ifndef __APPLE__
@@ -533,9 +581,15 @@ static void get_boot_mode(struct options_setting* setting)
 	if (status)
 		printf("get_boot_mode failed, error = 0x%x\n", status);
 	else
-		printf("get_boot_mode: %s\n", get_boot_mode_name_from_hex(board, read_buf) == NULL ?
-			"Cannot find the boot mode!" :
-			get_boot_mode_name_from_hex(board, read_buf));
+	{
+		if (get_boot_mode_name_from_hex(board, read_buf) == NULL)
+			printf("get_boot_mode hex value: %s0x%x%s, cannot find the boot mode string.\n",
+				g_vt_red, read_buf, g_vt_default);
+		else
+			printf("get_boot_mode: %s%s%s, hex value: %s0x%x%s\n",
+				g_vt_red, get_boot_mode_name_from_hex(board, read_buf),
+				g_vt_default, g_vt_red, read_buf, g_vt_default);
+	}
 
 	free_gpio(gpio);
 }
@@ -678,7 +732,7 @@ static void reset(struct options_setting* setting)
 		return;
 	struct gpio_device* gpio = NULL;
 	int status = -1;
-	int a = 0;
+	int a = 0, mask = 0;
 	char sr_name[100];
 
 	status = initialize(setting, RESET_NOW);
@@ -711,6 +765,7 @@ static void reset(struct options_setting* setting)
 	printf("rebooting...\n");
 
 	gpio = get_gpio("reset", board);
+	mask = board->mappings[get_gpio_id("reset", board)].initinfo & 0xF;
 	if (gpio == NULL)
 	{
 		printf("reset: error building device linked list\n");
@@ -720,14 +775,14 @@ static void reset(struct options_setting* setting)
 	//delay
 	msleep(setting->delay);
 
-	status = gpio->gpio_write(gpio, 0x00); //reset low
+	status = gpio->gpio_write(gpio, mask ? 0x00 : 0xFF); //reset low
 	if (setting->hold)
 		msleep(setting->hold);
 	else
 		msleep(500);
 	if (setting->boot_mode_hex != -1)
 	{
-		status |= gpio->gpio_write(gpio, 0xFF) << 1;//reset high
+		status |= gpio->gpio_write(gpio, mask ? 0xFF : 0x00) << 1;//reset high
 	}
 	free_gpio(gpio);
 
@@ -747,12 +802,13 @@ static void reset(struct options_setting* setting)
 			msleep(10);
 
 			gpio = get_gpio("reset", board);
+			mask = board->mappings[get_gpio_id("reset", board)].initinfo & 0xF;
 			if (gpio == NULL)
 			{
 				printf("reset: error building device linked list\n");
 				return;
 			}
-			status |= gpio->gpio_write(gpio, 0xFF) << 3; //reset high
+			status |= gpio->gpio_write(gpio, mask ? 0xFF : 0x00) << 3; //reset high
 			free_gpio(gpio);
 
 			if (!status)
@@ -764,12 +820,13 @@ static void reset(struct options_setting* setting)
 		else
 		{
 			gpio = get_gpio("remote_en", board);
+			mask = board->mappings[get_gpio_id("remote_en", board)].initinfo & 0xF;
 			if (gpio == NULL)
 			{
 				printf("reset: error building device linked list\n");
 				return;
 			}
-			status |= gpio->gpio_write(gpio, 0x00) << 2; //remote_en low
+			status |= gpio->gpio_write(gpio, mask ? 0x00 : 0xFF) << 2; //remote_en low
 			if (!status)
 				printf("%sDISABLE%s remote control, boot by %sBOOT SWITCH%s\n", g_vt_red, g_vt_default, g_vt_yellow, g_vt_default);
 			free_gpio(gpio);
@@ -1151,16 +1208,16 @@ static void monitor(struct options_setting* setting)
 
 		/*print first row*/
 		int i = 1, index_n;
-		fprintf(fptr, "time(ms),");
+		fprintf(fptr, "time(ms)");
 		index_n = get_power_index_by_showid(i, board);
 		while (index_n != -1)
 		{
 			if (board->mappings[index_n].type == power && board->mappings[index_n].initinfo != 0)
 			{
 				if (!setting->pmt)
-					fprintf(fptr, "%s voltage(V),%s current(mA),", board->mappings[index_n].name, board->mappings[index_n].name);
+					fprintf(fptr, ",%s voltage(V),%s current(mA)", board->mappings[index_n].name, board->mappings[index_n].name);
 				else
-					fprintf(fptr, "%s voltage(V),%s current(mA),%s power(mW),", board->mappings[index_n].name, board->mappings[index_n].name, board->mappings[index_n].name);
+					fprintf(fptr, ",%s voltage(V),%s current(mA),%s power(mW)", board->mappings[index_n].name, board->mappings[index_n].name, board->mappings[index_n].name);
 			}
 			i++;
 			index_n = get_power_index_by_showid(i, board);
@@ -1187,8 +1244,8 @@ static void monitor(struct options_setting* setting)
 	int sr_level[MAX_NUMBER_OF_POWER];
 	int range_control = 0;
 	int range_level[MAX_NUMBER_OF_POWER] = {0};
-	float cur_range[MAX_NUMBER_OF_POWER];
-	float unused_range[MAX_NUMBER_OF_POWER];
+	double cur_range[MAX_NUMBER_OF_POWER];
+	double unused_range[MAX_NUMBER_OF_POWER];
 
 	//initialize
 	for (int i = 0; i < MAX_NUMBER_OF_POWER; i++)
@@ -1239,7 +1296,7 @@ static void monitor(struct options_setting* setting)
 	{
 		for (int i = 0; i < num_of_groups; i++)
 		{
-			fprintf(fptr, "%s Power(mW),", board->power_groups[i].group_name);
+			fprintf(fptr, ",%s Power(mW)", board->power_groups[i].group_name);
 		}
 		fprintf(fptr, "\n");
 	}
@@ -1652,7 +1709,7 @@ static void monitor(struct options_setting* setting)
 		{
 			unsigned long now;
 			get_msecond(&now);
-			fprintf(fptr, "%ld,", (long)now - start);//add time before the first element
+			fprintf(fptr, "%ld", (long)now - start);//add time before the first element
 			for (int m = 0; m < n + 1; m++)
 			{
 				int k = get_power_index_by_showid(m, board);
@@ -1661,14 +1718,14 @@ static void monitor(struct options_setting* setting)
 				if (board->mappings[k].initinfo != 0)
 				{
 					if (!setting->pmt)
-						fprintf(fptr, "%lf,%lf,", vnow[k], cnow_fwrite[k]);
+						fprintf(fptr, ",%lf,%lf", vnow[k], cnow_fwrite[k]);
 					else
-						fprintf(fptr, "%lf,%lf,%lf,", vnow[k], cnow_fwrite[k], pnow_fwrite[k]);
+						fprintf(fptr, ",%lf,%lf,%lf", vnow[k], cnow_fwrite[k], pnow_fwrite[k]);
 				}
 			}
 			for (int k = 0; k < num_of_groups; k++)
 			{
-				fprintf(fptr, "%lf,", groups[k].sum);
+				fprintf(fptr, ",%lf", groups[k].sum);
 			}
 			fprintf(fptr, "\n");
 		}
@@ -2053,8 +2110,8 @@ static void monitor(struct options_setting* setting)
 					groups[k].avg_data_size = 0;
 				}
 				get_msecond(&avgstart);
-				if (setting->dump == 1)
-					fprintf(fptr, "HOT-KEY %d PRESSED: Reset AVG value,\n", hotkey_index);
+				if (setting->dump == 1 && !setting->pmt)
+					fprintf(fptr, "HOT-KEY %d PRESSED: Reset AVG value\n", hotkey_index);
 				break;
 			case 2:
 				for (int k = 0; k < n; k++)
@@ -2072,8 +2129,8 @@ static void monitor(struct options_setting* setting)
 					groups[k].min = 99999;
 				}
 				get_msecond(&maxminstart);
-				if (setting->dump == 1)
-					fprintf(fptr, "HOT-KEY %d PRESSED: Reset MAXMIN value,\n", hotkey_index);
+				if (setting->dump == 1 && !setting->pmt)
+					fprintf(fptr, "HOT-KEY %d PRESSED: Reset MAXMIN value\n", hotkey_index);
 				break;
 			case 3:
 				for (int k = 0; k < n; k++)
@@ -2097,8 +2154,8 @@ static void monitor(struct options_setting* setting)
 					groups[k].min = 99999;
 				}
 				get_msecond(&maxminstart);
-				if (setting->dump == 1)
-					fprintf(fptr, "HOT-KEY %d PRESSED: Reset AVG and MAXMIN value,\n", hotkey_index);
+				if (setting->dump == 1 && !setting->pmt)
+					fprintf(fptr, "HOT-KEY %d PRESSED: Reset AVG and MAXMIN value\n", hotkey_index);
 				avgstart = maxminstart;
 				break;
 			case 4:
@@ -2123,13 +2180,13 @@ static void monitor(struct options_setting* setting)
 				{
 					printf("Will boot from BOOT SWITCH, input=%d%s\n", setting->boot_mode_hex, g_vt_clear_line);
 					setting->boot_mode_hex = -1;
-					if (setting->dump == 1)
-						fprintf(fptr, "HOT-KEY %d PRESSED: Reset the board from BOOT SWITCH,\n", hotkey_index);
+					if (setting->dump == 1 && !setting->pmt)
+						fprintf(fptr, "HOT-KEY %d PRESSED: Reset the board from BOOT SWITCH\n", hotkey_index);
 				}
 				else
 				{
-					if (setting->dump == 1)
-						fprintf(fptr, "HOT-KEY %d PRESSED: Reset the board from %s,\n", hotkey_index, board->boot_modes[setting->boot_mode_hex].name);
+					if (setting->dump == 1 && !setting->pmt)
+						fprintf(fptr, "HOT-KEY %d PRESSED: Reset the board from %s\n", hotkey_index, board->boot_modes[setting->boot_mode_hex].name);
 				}
 
 				reset(setting);
@@ -2161,8 +2218,8 @@ static void monitor(struct options_setting* setting)
 			case 6:
 				printf("\nSimulate pressing the ON/OFF button once shortly%s\n", g_vt_clear_line);
 				onoff(setting, 500, DONT_INIT);
-				if (setting->dump == 1)
-					fprintf(fptr, "HOT-KEY %d PRESSED: Resume the board,\n", hotkey_index);
+				if (setting->dump == 1 && !setting->pmt)
+					fprintf(fptr, "HOT-KEY %d PRESSED: Resume the board\n", hotkey_index);
 				break;
 			default:
 				break;
@@ -2216,9 +2273,9 @@ static void monitor(struct options_setting* setting)
 	free_device_linkedlist_backward(end_point);
 	if (setting->dump == 1)
 	{
-		if (GV_MONITOR_TERMINATED && setting->dump_statistics)
+		if (GV_MONITOR_TERMINATED && setting->dump_statistics && !setting->pmt)
 		{
-			fprintf(fptr, "AVG,");
+			fprintf(fptr, "AVG");
 			for (int m = 0; m < n + 1; m++)
 			{
 				int k = get_power_index_by_showid(m, board);
@@ -2227,18 +2284,18 @@ static void monitor(struct options_setting* setting)
 				if (board->mappings[k].initinfo != 0)
 				{
 					if (!setting->pmt)
-						fprintf(fptr, "%lf,%lf,", vavg[k], cavg[k]);
+						fprintf(fptr, ",%lf,%lf", vavg[k], cavg[k]);
 					else
-						fprintf(fptr, "%lf,%lf,%lf,", vavg[k], cavg[k], pavg[k]);
+						fprintf(fptr, ",%lf,%lf,%lf", vavg[k], cavg[k], pavg[k]);
 				}
 			}
 			for (int k = 0; k < num_of_groups; k++)
 			{
-				fprintf(fptr, "%lf,", groups[k].avg);
+				fprintf(fptr, ",%lf", groups[k].avg);
 			}
 			fprintf(fptr, "\n");
 
-			fprintf(fptr, "MAX,");
+			fprintf(fptr, "MAX");
 			for (int m = 0; m < n + 1; m++)
 			{
 				int k = get_power_index_by_showid(m, board);
@@ -2247,18 +2304,18 @@ static void monitor(struct options_setting* setting)
 				if (board->mappings[k].initinfo != 0)
 				{
 					if (!setting->pmt)
-						fprintf(fptr, "%lf,%lf,", vmax[k], cmax[k]);
+						fprintf(fptr, ",%lf,%lf", vmax[k], cmax[k]);
 					else
-						fprintf(fptr, "%lf,%lf,%lf,", vmax[k], cmax[k], pmax[k]);
+						fprintf(fptr, ",%lf,%lf,%lf", vmax[k], cmax[k], pmax[k]);
 				}
 			}
 			for (int k = 0; k < num_of_groups; k++)
 			{
-				fprintf(fptr, "%lf,", groups[k].max);
+				fprintf(fptr, ",%lf", groups[k].max);
 			}
 			fprintf(fptr, "\n");
 
-			fprintf(fptr, "MIN,");
+			fprintf(fptr, "MIN");
 			for (int m = 0; m < n + 1; m++)
 			{
 				int k = get_power_index_by_showid(m, board);
@@ -2267,18 +2324,19 @@ static void monitor(struct options_setting* setting)
 				if (board->mappings[k].initinfo != 0)
 				{
 					if (!setting->pmt)
-						fprintf(fptr, "%lf,%lf,", vmin[k], cmin[k]);
+						fprintf(fptr, ",%lf,%lf", vmin[k], cmin[k]);
 					else
-						fprintf(fptr, "%lf,%lf,%lf,", vmin[k], cmin[k], pmin[k]);
+						fprintf(fptr, ",%lf,%lf,%lf", vmin[k], cmin[k], pmin[k]);
 				}
 			}
 			for (int k = 0; k < num_of_groups; k++)
 			{
-				fprintf(fptr, "%lf,", groups[k].min);
+				fprintf(fptr, ",%lf", groups[k].min);
 			}
 			fprintf(fptr, "\n");
 		}
 		fclose(fptr);
+		free(setting->dumpname);
 	}
 	printf("%s", g_vt_clear);
 	printf("%s", g_vt_home);

@@ -140,7 +140,8 @@ int _download(char* url, char* out, char* extname)
 	char outname[50] = "";
 
 	strcat(outname, out);
-	strcat(outname, extname);
+	if (!strcmp(extname, ".pdf"))
+		strcat(outname, extname);
 
 	chunk = curl_slist_append(chunk, "User-Agent: bcu");
 	curl = curl_easy_init();
@@ -185,7 +186,7 @@ int _https_get_by_url(char* remote_url, struct latest_git_info* get_info)
 	HINTERNET  hSession = NULL,
 		hConnect = NULL,
 		hRequest = NULL;
-	int strsize = 0;
+	unsigned int strsize = 0;
 	char host[30];
 	char objname[256];
 	wchar_t whost[30];
@@ -505,8 +506,14 @@ int https_download(struct latest_git_info* get_info)
 	strcat(get_info->download_url, get_info->download_name);
 	strcat(get_info->download_url, get_info->extension_name);
 
+#if defined(WIN32)
 	printf("Downloading %s%s from %s\n", get_info->tag_name,
 			get_info->extension_name, get_info->download_url);
+#else
+	printf("Downloading %s%s from %s\n", get_info->tag_name,
+			!strcmp(get_info->extension_name, ".pdf") ? ".pdf" : "",
+			get_info->download_url);
+#endif
 	if(_download(get_info->download_url, get_info->tag_name, get_info->extension_name))
 	{
 		printf("Download Failed!\n");

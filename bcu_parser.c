@@ -273,7 +273,7 @@ void set_options_default(struct options_setting* setting)
 	setting->force = 0;
 	setting->pmt = 0;
 	setting->nodisplay = 0;
-	setting->dumpname[0] = '\0';
+	setting->dumpname = NULL;
 	setting->refreshms = 0;
 	setting->use_rms = 0;
 	setting->rangefixed = 0;
@@ -379,6 +379,14 @@ int parse_options(char* cmd, int argc, char** argv, struct options_setting* sett
 			setting->auto_find_board = 1;
 			// printf("will auto find the board...\n");
 		}
+		else if (strncmp(argv[i], "-boothex=", 9) == 0 && strlen(argv[i]) > 4)
+		{
+			setting->boot_mode_hex = strtol(input, NULL, 16);
+		}
+		else if (strncmp(argv[i], "-bootbin=", 9) == 0 && strlen(argv[i]) > 4)
+		{
+			setting->boot_mode_hex = strtol(input, NULL, 2);
+		}
 		else if (strncmp(argv[i], "-delay=", 7) == 0 && strlen(argv[i]) > 7)
 		{
 			setting->delay = atoi(input);
@@ -417,14 +425,19 @@ int parse_options(char* cmd, int argc, char** argv, struct options_setting* sett
 		else if (strncmp(argv[i], "-dump=", 6) == 0 && strlen(argv[i]) > 6)
 		{
 			setting->dump = 1;
-			strcpy(setting->dumpname, input);
+
+			setting->dumpname = strdup(input);
 			int len1 = strlen(setting->dumpname), len2 = strlen(".csv");
 			if (len1 == 0)
-				strcpy(setting->dumpname, "monitor_record.csv");
+			{
+				free(setting->dumpname);
+				setting->dumpname = strdup("monitor_record.csv");
+			}
 			else
 			{
 				if(strcmp(setting->dumpname + len1 - len2, ".csv"))
 				{
+					setting->dumpname = realloc(setting->dumpname, strlen(setting->dumpname) + strlen(".csv") + 1);
 					strcat(setting->dumpname, ".csv");
 				}
 			}
@@ -433,7 +446,7 @@ int parse_options(char* cmd, int argc, char** argv, struct options_setting* sett
 		else if (strcmp(argv[i], "-dump") == 0)
 		{
 			setting->dump = 1;
-			strcpy(setting->dumpname, "monitor_record.csv");
+			setting->dumpname = strdup("monitor_record.csv");
 			printf("dump data into %s file\n", setting->dumpname);
 		}
 		else if (strcmp(argv[i], "-pmt") == 0)
@@ -446,14 +459,14 @@ int parse_options(char* cmd, int argc, char** argv, struct options_setting* sett
 			if (!setting->dump)
 			{
 				setting->dump = 1;
-				strcpy(setting->dumpname, "monitor_record.csv");
+				setting->dumpname = strdup("monitor_record.csv");
 				printf("dump data into %s file\n", setting->dumpname);
 			}
 		}
 		else if (strncmp(argv[i], "-hz=", 4) == 0 && strlen(argv[i]) > 4)
 		{
-			float hz = atof(input);
-			setting->refreshms = 1000.0 / hz;
+			double hz = atof(input);
+			setting->refreshms = (int)(1000.0 / hz);
 		}
 		else if (strcmp(argv[i], "-rms") == 0)
 		{
@@ -791,35 +804,35 @@ void groups_init(struct group* groups, int num)
 	}
 }
 
-void __str_replace(char * cp, int n, char * str)
+void __str_replace(char* cp, int n, char* str)
 {
 	int lenofstr;
-	char * tmp;
+	char* tmp;
 	lenofstr = strlen(str);
-	if(lenofstr < n)
+	if (lenofstr < n)
 	{
-		tmp = cp+n;
-		while(*tmp)
+		tmp = cp + n;
+		while (*tmp)
 		{
-			*(tmp-(n-lenofstr)) = *tmp;
+			*(tmp - (n - lenofstr)) = *tmp;
 			tmp++;
 		}
-		*(tmp-(n-lenofstr)) = *tmp;
+		*(tmp - (n - lenofstr)) = *tmp;
 	}
 	else
 	{
-		if(lenofstr > n)
+		if (lenofstr > n)
 		{
 			tmp = cp;
-			while(*tmp) tmp++;
-			while(tmp>=cp+n)
+			while (*tmp) tmp++;
+			while (tmp >= cp + n)
 			{
-				*(tmp+(lenofstr-n)) = *tmp;
+				*(tmp + (lenofstr - n)) = *tmp;
 				tmp--;
 			}
 		}
 	}
-	strncpy(cp,str,lenofstr);
+	strncpy(cp, str, lenofstr);
 }
 
 int str_replace(char *str, char *source, char *dest)
